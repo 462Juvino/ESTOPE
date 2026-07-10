@@ -1069,8 +1069,9 @@
         let lastTiktokUser = "";
 
         function conectarNuvem() {
-            let targetUser = jogo.config.tiktok_username;
-            if (!targetUser) return;
+            // Garante que o jogo use o rdmUser validado pelo sistema de licenças caso o config esteja vazio
+            let targetUser = jogo.config.tiktok_username || window.rdmUser;
+            if (!targetUser || targetUser === "visitante") return;
             if (conexaoNuvemEstabelecida && lastTiktokUser === targetUser) return;
             if (wsNuvem && wsNuvem.readyState === WebSocket.CONNECTING) return;
             if (wsNuvem) wsNuvem.close();
@@ -1104,7 +1105,8 @@
         const firebaseConfig = { apiKey: "AIzaSyB2LNWktWEwYLuZxwr8oc9NpcjFz3GU5qc", authDomain: "authrdm-a82a6.firebaseapp.com", databaseURL: "https://authrdm-a82a6-default-rtdb.firebaseio.com", projectId: "authrdm-a82a6" };
         const app = initializeApp(firebaseConfig); const db = getDatabase(app);
 
-        const rdmUser = window.rdmUser || "visitante";
+        // Força a leitura direta e segura do localStorage sincronizado com a licença da RDM
+        const rdmUser = localStorage.getItem('rdm_user_tiktok') || localStorage.getItem('rdm_user') || "visitante";
 
         // Canal de envio dos Rankings para o Firebase
         window.fbcPushRankings = function(rankingsData) {
