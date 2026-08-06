@@ -149,7 +149,7 @@
         </div>
     </div>
 
-    <button onclick="document.getElementById('hud-janela-painel').style.display='flex'" style="position: absolute; top: 15px; left: 15px; z-index: 1500; background: #3498db; color: white; border: 2px solid #fff; padding: 10px 15px; font-weight: bold; border-radius: 5px; cursor: pointer; box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); opacity: 0; transition: opacity 0.2s;" onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=0">⚙️ PAINEL</button>
+    <button onclick="document.getElementById('hud-janela-painel').style.display='flex'" style="position: absolute; top: 15px; left: 15px; z-index: 1500; background: #3498db; color: white; border: 2px solid #fff; padding: 10px 15px; font-weight: bold; border-radius: 5px; cursor: pointer; box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); opacity: 0.5; transition: opacity 0.2s;" onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=0.5">⚙️ PAINEL</button>
 
     <div id="hud-janela-painel" style="position: absolute; top: 60px; left: 15px; width: calc(100vw - 30px); max-width: 450px; height: 85vh; background: rgba(13, 17, 23, 0.95); border: 2px solid #3498db; border-radius: 10px; z-index: 2000; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);">
         <div style="background: #3498db; padding: 10px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
@@ -471,6 +471,29 @@
             }
         }
 
+        function mostrarAviso(texto) {
+            dispararEfeito('aviso', texto);
+        }
+
+        function finalizarJogo() {
+            jogo.ativo = false; jogo.iniciando = false;
+            let vencedor = jogo.jogadores_roda.length > 0 ? jogo.jogadores_roda[0] : null;
+            if (vencedor) {
+                let acertos = jogo.dados_jogadores[vencedor].acertos_lista || [];
+                dispararEfeito('game_over', { nick: vencedor, avatar: jogo.dados_jogadores[vencedor].avatar, tempo: Math.floor(Date.now()/1000) - Math.floor(jogo.tempo_inicio/1000), palavras: acertos });
+                jogo.jogadores_roda = [vencedor];
+            } else { dispararEfeito('game_over', null); jogo.jogadores_roda = []; }
+            jogo.turno_atual = 0;
+            atualizarTela();
+        }
+
+        function proximoTurno() {
+            if (jogo.jogadores_roda.length === 0) return;
+            jogo.turno_atual = (jogo.turno_atual + 1) % jogo.jogadores_roda.length;
+            sortearDesafio();
+            atualizarTela();
+        }
+
         function dispararEfeito(tipo, dados) {
             if (tipo === 'explosao_avatar') { spawnCenterExplosion(); return; }
             if (tipo === 'game_over') { exibirVencedor(dados); return; }
@@ -510,10 +533,12 @@
             const dataDict = rData[per] || {vitorias: {}, palavras: {}, heroi: {}, vilao: {}};
 
             if (jogo.config.volume_explosao !== undefined) audioExplosaoMp3.volume = jogo.config.volume_explosao;
-            if (jogo.config.bg_type === 'color') {
+            if (jogo.config.bg_type === 'transparent') {
+                document.body.style.backgroundImage = 'none'; document.body.style.backgroundColor = 'rgba(0, 0, 0, 0)';
+            } else if (jogo.config.bg_type === 'color') {
                 document.body.style.backgroundImage = 'none'; document.body.style.backgroundColor = jogo.config.bg_value;
-            } else if (jogo.config.bg_type === 'image' && jogo.config.bg_value.startsWith('data:image')) {
-                document.body.style.backgroundColor = 'transparent'; document.body.style.backgroundImage = `url('${jogo.config.bg_value}')`;
+            } else if (jogo.config.bg_type === 'image' && jogo.config.bg_value && jogo.config.bg_value.startsWith('data:image')) {
+                document.body.style.backgroundColor = 'rgba(0, 0, 0, 0)'; document.body.style.backgroundImage = `url('${jogo.config.bg_value}')`;
             }
 
             const telaVencedorAtiva = document.getElementById('tela-vencedor').classList.contains('show');
@@ -637,7 +662,7 @@
                 }
             }
 
-            let cmdStr = localStorage.getItem('estopeCommand');
+            let cmdStr = localStorage.getItem('estopeCommand'); // 🔥 CORREÇÃO: Lendo o comando do ESTOPE!
             if (cmdStr) {
                 let cmd = JSON.parse(cmdStr);
                 if (cmd.ts !== jogo.lastCmdTs) {
@@ -645,43 +670,35 @@
                     if (cmd.action === 'display_mode') { jogo.display_mode = cmd.value; atualizarTela(); }
                     if (cmd.action === 'display_periodo') { jogo.display_periodo = cmd.value; atualizarTela(); }
                     if (cmd.action === 'update_bg') { atualizarConfig(); atualizarTela(); }
-                    if (cmd.action === 'add_player' && !jogo.jogadores_roda.includes(cmd.value)) {
-                        if(!jogo.dados_jogadores[cmd.value]) jogo.dados_jogadores[cmd.value] = { avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${cmd.value}`, coins: 0 };
-                        jogo.jogadores_roda.push(cmd.value); atualizarTela();
+                    if (cmd.action === 'start_game' && jogo.jogadores_roda.length > 0 && !jogo.ativo && !jogo.iniciando) iniciarComContagem(); // 🔥 Permite iniciar sozinho!
+                    if (cmd.action === 'add_player' && !jogo.jogadores_roda.includes(cmd.value)) adicionarJogador(cmd.value, `https://api.dicebear.com/7.x/bottts/svg?seed=${cmd.value}`);
+                    if (cmd.action === 'limpar_diario') {
+                        let rStr = localStorage.getItem('estopeRankings'); let rankings = rStr ? JSON.parse(rStr) : null;
+                        if(rankings) { rankings.diario = {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}; localStorage.setItem('estopeRankings', JSON.stringify(rankings)); if (typeof window.fbcPushRankings === "function") window.fbcPushRankings(rankings); }
                     }
                     if (cmd.action === 'remove_player' && jogo.jogadores_roda.includes(cmd.value)) {
-                        jogo.jogadores_roda = jogo.jogadores_roda.filter(n => n !== cmd.value);
-                        let qtd_atual = jogo.jogadores_roda.length;
-                        if (jogo.ativo && (qtd_atual === 0 || (qtd_atual === 1 && (jogo.qnt_inicial || 2) > 1))) {
-                            jogo.ativo = false; jogo.iniciando = false; dispararEfeito('game_over', null);
+                        let idx = jogo.jogadores_roda.indexOf(cmd.value); jogo.jogadores_roda.splice(idx, 1);
+                        if (jogo.ativo) {
+                            if (jogo.jogadores_roda.length === 0) {
+                                jogo.ativo = false; jogo.iniciando = false; dispararEfeito('game_over', null);
+                            }
+                            else { if (idx < jogo.turno_atual) jogo.turno_atual--; if (jogo.turno_atual >= jogo.jogadores_roda.length) jogo.turno_atual = 0; if (idx <= jogo.turno_atual) sortearDesafio(); }
                         }
                         atualizarTela();
                     }
-                    if (cmd.action === 'start_game' && jogo.jogadores_roda.length > 0 && !jogo.ativo && !jogo.iniciando) iniciarComContagem();
                 }
             }
+            localStorage.setItem('estopeState', JSON.stringify({ jogadores: jogo.jogadores_roda, espectadores: espectadoresRecentes, dados_jogadores: jogo.dados_jogadores })); // 🔥 CORREÇÃO: Salvando no estado do Estope!
 
             if (jogo.ativo && jogo.jogadores_roda.length > 0) {
                 jogo.tempo_restante--;
 
                 if (jogo.tempo_restante <= 0) {
-                    let eliminados = jogo.jogadores_roda.filter(p => !jogo.acertos_rodada.includes(p));
-                    eliminados.forEach(e => { dispararEfeito('explosao_avatar', null); });
-                    jogo.jogadores_roda = jogo.jogadores_roda.filter(p => jogo.acertos_rodada.includes(p));
-
-                    let qtd_atual = jogo.jogadores_roda.length;
-                    if (qtd_atual === 0 || (qtd_atual === 1 && (jogo.qnt_inicial || 2) > 1)) {
-                        jogo.ativo = false; jogo.iniciando = false;
-                        let vencedor = jogo.jogadores_roda[0] || null;
-                        if (vencedor) {
-                            let d = { nick: vencedor, avatar: jogo.dados_jogadores[vencedor].avatar, tempo: Math.floor((Date.now() - jogo.tempo_inicio)/1000), palavras: jogo.dados_jogadores[vencedor].acertos_lista || [] };
-                            dispararEfeito('game_over', d);
-                        } else { dispararEfeito('game_over', null); }
-                    } else {
-                        if (jogo.tempo_rodada_atual > 10) jogo.tempo_rodada_atual -= 10;
-                        else if (jogo.tempo_rodada_atual > 5) jogo.tempo_rodada_atual -= 1;
-                        sortearDesafio();
-                    }
+                    playExplosionFlash(); spawnCenterExplosion();
+                    let morto = jogo.jogadores_roda[jogo.turno_atual];
+                    jogo.jogadores_roda.splice(jogo.turno_atual, 1);
+                    if (jogo.turno_atual >= jogo.jogadores_roda.length) jogo.turno_atual = 0;
+                    if (jogo.jogadores_roda.length === 0) finalizarJogo(); else sortearDesafio();
                 }
 
                 let bombas_remover = [];
@@ -838,17 +855,10 @@
         }
 
         function escolherAlvoBomba(excluido = null) {
-            let candidatos = jogo.jogadores_roda.filter(j => j !== excluido);
+            let candidatos = jogo.jogadores_roda.filter(j => j !== excluido && jogo.bombas_ativas[j] === undefined);
+            if (candidatos.length === 0) candidatos = jogo.jogadores_roda.filter(j => jogo.bombas_ativas[j] === undefined);
             if (candidatos.length === 0) return null;
-            // Usa o index como peso (os que estão no fim da lista têm mais probabilidade)
-            let pesos = candidatos.map((_, i) => i + 1);
-            let total = pesos.reduce((a, b) => a + b, 0);
-            let rand = Math.random() * total;
-            for (let i = 0; i < candidatos.length; i++) {
-                if (rand < pesos[i]) return candidatos[i];
-                rand -= pesos[i];
-            }
-            return candidatos[0];
+            return candidatos[Math.floor(Math.random() * candidatos.length)];
         }
 
         function atualizarHierarquia() {
@@ -871,17 +881,18 @@
         }
 
         function addRanking(categoria, nick, valor=1) {
-            let rStr = localStorage.getItem('estopeRankings');
-            let rankings = rStr ? JSON.parse(rStr) : { id_diario: '', id_semanal: '', id_mensal: '', diario: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}, semanal: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}, mensal: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}, geral: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}} };
-            checkRankingResets(rankings);
-            ['diario', 'semanal', 'mensal', 'geral'].forEach(periodo => {
-                if(!rankings[periodo][categoria]) rankings[periodo][categoria] = {};
-                rankings[periodo][categoria][nick] = (rankings[periodo][categoria][nick] || 0) + valor;
-            });
-            localStorage.setItem('estopeRankings', JSON.stringify(rankings));
-
-            // 📡 Avisa a Nuvem que os Rankings mudaram!
-            if (typeof window.fbcPushRankings === "function") window.fbcPushRankings(rankings);
+            try {
+                let rStr = localStorage.getItem('estopeRankings');
+                let rankings = rStr ? JSON.parse(rStr) : { id_diario: '', id_semanal: '', id_mensal: '', diario: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}, semanal: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}, mensal: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}}, geral: {vitorias:{}, palavras:{}, heroi:{}, vilao:{}} };
+                checkRankingResets(rankings);
+                let safeNick = nick.replace(/[.#$\[\]\/]/g, "_");
+                ['diario', 'semanal', 'mensal', 'geral'].forEach(periodo => {
+                    if(!rankings[periodo][categoria]) rankings[periodo][categoria] = {};
+                    rankings[periodo][categoria][safeNick] = (rankings[periodo][categoria][safeNick] || 0) + valor;
+                });
+                localStorage.setItem('estopeRankings', JSON.stringify(rankings));
+                if (typeof window.fbcPushRankings === "function") { try { window.fbcPushRankings(rankings); } catch(e){} }
+            } catch(e) {}
         }
 
         function processarEventoDaAPI(d) {
@@ -889,8 +900,11 @@
             let dados = d.data;
             if(!dados) return;
 
-            let nick = (dados.nickname || dados.uniqueId || "").trim();
-            if (!nick || nick.toLowerCase() === "none") return;
+            let nick_bruto = (dados.nickname || dados.uniqueId || "").trim();
+            if (!nick_bruto || nick_bruto.toLowerCase() === "none") return;
+
+            // 🛡️ A CURA DEFINITIVA: Remove o ponto do nick para não travar o banco de dados
+            let nick = nick_bruto.replace(/[.#$\[\]\/]/g, "_");
 
             let avatar_url = dados.profilePictureUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${nick}`;
             espectadoresRecentes[nick] = avatar_url;
@@ -970,10 +984,12 @@
                     else if (pres === c_uma_bomba) {
                         addRanking("vilao", nick, acoes);
                         let tempo_queda = parseInt(jogo.config.tempo_bomba_queda) || 7;
+                        let qtdLancada = 0;
                         for(let i=0; i<acoes; i++) {
                             let alvo = escolherAlvoBomba(nick);
-                            if (alvo) { jogo.bombas_ativas[alvo] = tempo_queda; dispararEfeito('aviso', `💣 BOMBA CAIU EM ${alvo}!`); }
+                            if (alvo) { jogo.bombas_ativas[alvo] = tempo_queda; qtdLancada++; }
                         }
+                        if (qtdLancada > 0) dispararEfeito('aviso', `💣 BOMBA EM ${qtdLancada} ALVO(S)!`);
                     }
                     else if (pres === c_empurrar) {
                         if (jogo.bombas_ativas[nick] !== undefined) {
@@ -981,17 +997,18 @@
                             let tempo_restante = jogo.bombas_ativas[nick];
                             delete jogo.bombas_ativas[nick];
                             let novo_alvo = escolherAlvoBomba(nick);
-                            if (novo_alvo) { jogo.bombas_ativas[novo_alvo] = tempo_restante; dispararEfeito('aviso', `✋ ${nick} EMPURROU A BOMBA PARA ${novo_alvo}!`); }
+                            if (novo_alvo) { jogo.bombas_ativas[novo_alvo] = tempo_restante; dispararEfeito('aviso', `✋ ${nick_bruto} EMPURROU A BOMBA PARA ${novo_alvo}!`); }
                         }
                     }
                     else if (pres === c_kick) {
                         addRanking("vilao", nick, 50);
                         let tempo_queda = parseInt(jogo.config.tempo_bomba_queda) || 7;
-                        dispararEfeito('aviso', `☢️ NUCLEAR: 4 BOMBAS LANÇADAS! ☢️`);
+                        let qtdLancada = 0;
                         for(let i=0; i < (4 * acoes); i++) {
                             let alvo = escolherAlvoBomba(nick);
-                            if (alvo) { jogo.bombas_ativas[alvo] = tempo_queda; }
+                            if (alvo) { jogo.bombas_ativas[alvo] = tempo_queda; qtdLancada++; }
                         }
+                        dispararEfeito('aviso', `☢️ NUCLEAR: ${qtdLancada} BOMBAS LANÇADAS! ☢️`);
                     }
                 }
                 atualizarTela();
@@ -1027,35 +1044,32 @@
                     }
                 }
 
-                if ((msg_limpa || msg_numerica) && jogo.ativo && jogo.jogadores_roda.length > 0) {
-                    if (jogo.jogadores_roda.includes(nick) && !jogo.acertos_rodada.includes(nick)) {
-                        if (jogo.tipo_desafio === "matematica" && msg_numerica === jogo.resposta_matematica) {
-                            addRanking("palavras", nick, 1); dispararEfeito('aviso', `${nick} ACERTOU!`);
-                            if (jogo.tempo_rodada_atual > 10) jogo.tempo_rodada_atual -= 10;
-                            else if (jogo.tempo_rodada_atual > 5) jogo.tempo_rodada_atual -= 1;
-                            sortearDesafio();
-                        } else if (jogo.tipo_desafio === "letra_categoria" && msg_limpa.startsWith(jogo.silaba_atual)) {
+                if ((msgLimpa || msgNum) && jogo.ativo && jogo.jogadores_roda.length > 0) {
+                    if (nick === jogo.jogadores_roda[jogo.turno_atual]) {
+                        if (jogo.tipo_desafio === "matematica" && msgNum === jogo.resposta_matematica) {
+                            jogo.dados_jogadores[nick].acertos_lista.push(jogo.silaba_atual);
+                            addRanking("palavras", nick, 1);
+                            proximoTurno();
+                        } else if (jogo.tipo_desafio === "letra_categoria" && msgLimpa.startsWith(jogo.silaba_atual)) {
                             let isValid = false;
                             if (jogo.categoria_atual === "GERAL") {
-                                if (dicionarioGlobal.has(msg_limpa)) isValid = true;
+                                if (dicionarioGlobal.has(msgLimpa)) isValid = true;
                             } else {
                                 let setCat = (dicionarioCategorias[jogo.categoria_atual] && dicionarioCategorias[jogo.categoria_atual][jogo.silaba_atual]) ? dicionarioCategorias[jogo.categoria_atual][jogo.silaba_atual] : new Set();
-                                if (setCat.has(msg_limpa)) isValid = true;
+                                if (setCat.has(msgLimpa)) isValid = true;
                             }
 
                             if (!isValid) {
-                                dispararEfeito('aviso', jogo.categoria_atual === "GERAL" ? "NÃO EXISTE!" : `NÃO EXISTE EM ${jogo.categoria_atual}!`);
-                            } else if (msg_limpa.length < 3) {
-                                dispararEfeito('aviso', "MUITO CURTA!");
-                            } else if (!jogo.palavras_usadas.includes(msg_limpa)) {
-                                jogo.palavras_usadas.push(msg_limpa);
-                                jogo.dados_jogadores[nick].acertos_lista.push(msg_limpa);
-                                jogo.acertos_rodada.push(nick);
-                                jogo.palavras_display.push({nick: nick, palavra: msg_limpa, avatar: jogo.dados_jogadores[nick].avatar});
+                                mostrarAviso(jogo.categoria_atual === "GERAL" ? "NÃO EXISTE!" : `NÃO EXISTE EM ${jogo.categoria_atual}!`);
+                            } else if (msgLimpa.length < 3) {
+                                mostrarAviso("MUITO CURTA!");
+                            } else if (!jogo.palavras_usadas.includes(msgLimpa)) {
+                                jogo.palavras_usadas.push(msgLimpa);
+                                jogo.dados_jogadores[nick].acertos_lista.push(msgLimpa);
                                 addRanking("palavras", nick, 1);
-                                if (jogo.acertos_rodada.length >= jogo.jogadores_roda.length) jogo.tempo_restante = 1;
+                                proximoTurno();
                             } else {
-                                dispararEfeito('aviso', `REPETIDA: ${msg_limpa}!`);
+                                mostrarAviso("JÁ USADA!");
                             }
                         }
                     }
